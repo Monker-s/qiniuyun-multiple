@@ -43,6 +43,16 @@ async function loadPreview(platformCode: string) {
     warnings.value = []
     return
   }
+
+  // 优先使用 AI 改写后的内容
+  const adapted = store.getAdaptedHtml(platformCode)
+  if (adapted) {
+    previewHtml.value = adapted
+    wordCount.value = adapted.replace(/<[^>]+>/g, '').replace(/\s+/g, '').length
+    warnings.value = []
+    return
+  }
+
   isLoading.value = true
   try {
     const res: any = await platformApi.convert({
@@ -71,6 +81,12 @@ function getVideoWarning(platformCode: string): string | null {
 
 watch(() => store.activePreviewPlatform, (code) => {
   if (code) loadPreview(code)
+})
+
+watch(() => store.adaptedHtmlMap.get(store.activePreviewPlatform), () => {
+  if (store.activePreviewPlatform) {
+    loadPreview(store.activePreviewPlatform)
+  }
 })
 
 watch(() => props.tiptapJson, () => {

@@ -16,12 +16,8 @@ export const aiApi = {
   analyzeText(text: string) {
     return http.post('/templates/analyze-text', { text })
   },
-  analyzeImage(file: File) {
-    const formData = new FormData()
-    formData.append('image', file)
-    return http.post('/templates/analyze-image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+  analyzeImage(imageUrl: string) {
+    return http.post('/templates/analyze-image', { imageUrl })
   },
   applyTemplate(data: { contentId: number; templateId: number; targetPlatformCode: string }) {
     return http.post('/ai/apply-template', data)
