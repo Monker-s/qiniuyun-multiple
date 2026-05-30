@@ -31,6 +31,12 @@ export const filesApi = {
   },
 
   mergeChunks(uploadId: string, fileName: string, fileType: string) {
-    return http.post('/files/upload/merge', { uploadId, fileName, type: fileType })
+    const formData = new FormData()
+    formData.append('uploadId', uploadId)
+    formData.append('fileName', fileName)
+    formData.append('type', fileType)
+    return http.post('/files/upload/merge', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
   }
 }
