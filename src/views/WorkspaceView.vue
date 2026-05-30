@@ -7,6 +7,7 @@ import PlatformPreviewPanel from '@/components/preview/PlatformPreviewPanel.vue'
 import { useEditorStore } from '@/stores/editor'
 import { contentApi } from '@/api/content'
 import { aiApi } from '@/api/ai'
+import { platformApi } from '@/api/platform'
 import type { Content } from '@/types/content'
 
 const route = useRoute()
@@ -21,6 +22,9 @@ const initialTitle = ref<string>('')
 const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const templateList = ref<any[]>([])
 const applying = ref(false)
+const publishing = ref(false)
+const publishProgress = ref<Map<string, { status: string; progress: number; message: string }>>(new Map())
+const showPublishPanel = ref(false)
 
 // 从路由加载内容
 const contentIdParam = route.params.id
@@ -109,6 +113,56 @@ async function applyTemplate(templateId: number) {
   }
 }
 
+async function handlePublish() {
+  if (!contentId.value) { await handleSave(); }
+  if (!contentId.value) { alert('请先保存内容'); return }
+
+  const selected = store.selectedPlatforms
+  if (selected.length === 0) { alert('请选择发布平台'); return }
+
+  publishing.value = true
+  showPublishPanel.value = true
+  publishProgress.value.clear()
+  for (const code of selected) {
+    publishProgress.value.set(code, { status: 'WAITING', progress: 0, message: '等待中...' })
+  }
+
+  const platforms = selected.map(code => {
+    const adapted = store.getAdaptedHtml(code) || ''
+    return { platformCode: code, title: currentTitle.value, adaptedHtml: adapted }
+  })
+
+  try {
+    const res: any = await platformApi.batchPublish({ contentId: contentId.value, platforms })
+    const taskId = res.data?.taskId
+
+    // SSE progress
+    const baseUrl = '/api/platform/publish/' + taskId + '/progress'
+    const eventSource = new EventSource(baseUrl)
+    eventSource.addEventListener('progress', (e: any) => {
+      const data = JSON.parse(e.data)
+      publishProgress.value.set(data.platformCode, {
+        status: data.step || 'IN_PROGRESS',
+        progress: data.progress || 0,
+        message: data.message || ''
+      })
+    })
+    eventSource.addEventListener('complete', (e: any) => {
+      const data = JSON.parse(e.data)
+      publishProgress.value.set(data.platformCode, {
+        status: data.status || 'SUCCESS',
+        progress: 100,
+        message: data.platformUrl || '发布成功'
+      })
+    })
+    eventSource.onerror = () => { eventSource.close() }
+  } catch (err: any) {
+    alert('发布失败: ' + (err.message || ''))
+  } finally {
+    publishing.value = false
+  }
+}
+
 onMounted(() => {
   loadTemplates()
 })
@@ -152,7 +206,26 @@ const saveLabel: Record<string, string> = {
         <PlatformPreviewPanel
           :tiptap-json="currentTiptapJson"
           :title="currentTitle"
+          @publish="handlePublish"
         />
+      </div>
+
+      <!-- 发布进度面板 -->
+      <div v-if="showPublishPanel" class="publish-overlay" @click.self="showPublishPanel = false">
+        <div class="publish-panel">
+          <h3>发布进度</h3>
+          <div v-for="[code, info] in publishProgress" :key="code" class="progress-row">
+            <span class="progress-platform">{{ code }}</span>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" :class="{
+                success: info.status === 'SUCCESS',
+                failed: info.status === 'FAILED'
+              }" :style="{ width: info.progress + '%' }"></div>
+            </div>
+            <span class="progress-msg">{{ info.message }}</span>
+          </div>
+          <button class="btn-close" @click="showPublishPanel = false">关闭</button>
+        </div>
       </div>
     </div>
     <div v-if="saveStatus !== 'idle'" class="save-toast" :class="saveStatus">
@@ -213,6 +286,30 @@ const saveLabel: Record<string, string> = {
   font-size: 12px;
   color: #4a90d9;
   margin-left: 6px;
+}
+.publish-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.publish-panel {
+  background: #fff; border-radius: 12px; padding: 24px; width: 480px; max-height: 70vh; overflow-y: auto;
+}
+.publish-panel h3 { margin: 0 0 16px; }
+.progress-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.progress-platform { font-size: 12px; font-weight: 600; min-width: 60px; }
+.progress-bar-wrap {
+  flex: 1; height: 6px; background: #eee; border-radius: 3px; overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%; background: #1890ff; border-radius: 3px; transition: width 0.5s;
+}
+.progress-bar-fill.success { background: #52c41a; }
+.progress-bar-fill.failed { background: #ff4d4f; }
+.progress-msg { font-size: 11px; color: #888; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-close {
+  margin-top: 12px; padding: 6px 20px; border: 1px solid #ddd; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px;
 }
 .save-toast {
   position: fixed;

@@ -27,5 +27,14 @@ export const platformApi = {
   },
   triggerLogin(platformCode: string) {
     return http.post(`/platform/${platformCode}/login`)
+  },
+  getUserPlatforms() {
+    return http.get('/user/platforms')
+  },
+  addUserPlatform(data: any) {
+    return http.post('/user/platforms', data)
+  },
+  removeUserPlatform(id: number) {
+    return http.delete(`/user/platforms/${id}`)
   }
 }
