@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { platformApi } from '@/api/platform'
 import { useEditorStore } from '@/stores/editor'
 
 const props = defineProps<{
   tiptapJson: string
   title: string
+}>()
+
+const emit = defineEmits<{
+  publish: []
 }>()
 
 const store = useEditorStore()
@@ -21,11 +25,25 @@ const platforms = [
 const previewHtml = ref('')
 const wordCount = ref(0)
 const warnings = ref<Array<{ type: string; message: string }>>([])
+const videoLimits = ref<Record<string, any>>({})
+const isLoading = ref(false)
+
+onMounted(async () => {
+  try {
+    const res: any = await platformApi.getVideoLimits()
+    videoLimits.value = res.data || {}
+  } catch { /* 接口暂未就绪 */ }
+})
 
 async function loadPreview(platformCode: string) {
   store.activePreviewPlatform = platformCode
-  if (!props.tiptapJson) return
-
+  if (!props.tiptapJson) {
+    previewHtml.value = ''
+    wordCount.value = 0
+    warnings.value = []
+    return
+  }
+  isLoading.value = true
   try {
     const res: any = await platformApi.convert({
       tiptapJson: props.tiptapJson,
@@ -36,14 +54,23 @@ async function loadPreview(platformCode: string) {
     wordCount.value = res.data?.wordCount || 0
     warnings.value = res.data?.platformWarnings || []
   } catch {
-    previewHtml.value = ''
+    previewHtml.value = '<p style="color:#999">预览加载失败，请检查后端服务</p>'
     wordCount.value = 0
     warnings.value = []
+  } finally {
+    isLoading.value = false
   }
 }
 
+function getVideoWarning(platformCode: string): string | null {
+  const limit = videoLimits.value[platformCode]
+  if (!limit) return null
+  if (!limit.supported) return limit.reason || '不支持视频'
+  return null
+}
+
 watch(() => store.activePreviewPlatform, (code) => {
-  loadPreview(code)
+  if (code) loadPreview(code)
 })
 
 watch(() => props.tiptapJson, () => {
@@ -80,23 +107,29 @@ watch(() => props.tiptapJson, () => {
 
     <div class="preview-content">
       <div class="phone-frame">
-        <div class="phone-screen" v-html="previewHtml"></div>
+        <div v-if="isLoading" class="preview-loading">加载中...</div>
+        <div v-else class="phone-screen" v-html="previewHtml"></div>
       </div>
     </div>
 
     <div class="preview-info">
-      <span>字数: {{ wordCount }}</span>
+      <span class="info-item">字数: {{ wordCount }}</span>
+      <span class="info-item">平台: {{ platforms.find(p => p.code === store.activePreviewPlatform)?.name }}</span>
+    </div>
+
+    <div v-if="warnings.length > 0" class="preview-warnings">
       <span v-for="w in warnings" :key="w.type" class="warning-tag">
-        ⚠ {{ w.message }}
+        {{ w.message }}
       </span>
     </div>
 
+    <div v-if="getVideoWarning(store.activePreviewPlatform)" class="video-warning">
+      {{ getVideoWarning(store.activePreviewPlatform) }}
+    </div>
+
     <div class="preview-actions">
-      <button
-        class="publish-btn"
-        :disabled="store.selectedPlatforms.length === 0"
-        @click="$emit('publish')"
-      >
+      <button class="publish-btn" :disabled="store.selectedPlatforms.length === 0"
+              @click="emit('publish')">
         一键发布到已选平台 ({{ store.selectedPlatforms.length }})
       </button>
     </div>
@@ -146,6 +179,13 @@ watch(() => props.tiptapJson, () => {
   padding: 12px 0;
   overflow-y: auto;
 }
+.preview-loading {
+  color: #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
 .phone-frame {
   width: 375px;
   min-height: 500px;
@@ -157,11 +197,27 @@ watch(() => props.tiptapJson, () => {
 .phone-screen {
   font-size: 14px;
   line-height: 1.6;
-  word-break: break-all;
+  word-break: break-word;
 }
 .phone-screen :deep(img) {
   max-width: 100%;
   border-radius: 4px;
+}
+.phone-screen :deep(h1) { font-size: 18px; }
+.phone-screen :deep(h2) { font-size: 16px; }
+.phone-screen :deep(h3) { font-size: 15px; }
+.phone-screen :deep(blockquote) {
+  border-left: 3px solid #4a90d9;
+  padding-left: 8px;
+  margin-left: 0;
+  color: #666;
+}
+.phone-screen :deep(pre) {
+  background: #f5f5f5;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
 }
 .preview-info {
   display: flex;
@@ -169,9 +225,26 @@ watch(() => props.tiptapJson, () => {
   padding: 8px 0;
   font-size: 12px;
   color: #888;
-  flex-wrap: wrap;
 }
-.warning-tag { color: #e6a23c; }
+.info-item { white-space: nowrap; }
+.preview-warnings {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+.warning-tag {
+  font-size: 11px;
+  color: #e6a23c;
+  background: #fdf6ec;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+.video-warning {
+  font-size: 11px;
+  color: #e6a23c;
+  padding: 4px 0;
+}
 .preview-actions {
   padding: 8px 0;
   display: flex;
